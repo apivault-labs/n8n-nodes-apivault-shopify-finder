@@ -1,251 +1,347 @@
 import type {
+	IDataObject,
 	IExecuteFunctions,
-	IHttpRequestMethods,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	IHttpRequestMethods,
 	IRequestOptions,
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 const ACTOR_ID = 'apivault_labs~website-leads-database';
-const API_BASE = 'https://api.apify.com/v2';
-const TERMINAL_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
-
-const splitList = (value: string): string[] =>
-	value.split(/[,\n]+/).map((item) => item.trim()).filter(Boolean);
-
-const sleep = async (milliseconds: number): Promise<void> =>
-	new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export class ShopifyFinder implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Website Leads Database',
+		displayName: 'Shopify & WooCommerce Leads Database',
 		name: 'shopifyFinder',
 		icon: 'file:shopifyfinder.svg',
 		group: ['transform'],
 		version: 1,
-		description: 'Find ecommerce and business websites by platform, country, contacts, technology and firmographic signals.',
-		defaults: { name: 'Website Leads Database' },
+		description: 'Find Shopify, WooCommerce and other website leads at scale. Export contacts, company data, technology stack and optional traffic estimates including monthly visits, growth and acquisition channels. Match traffic is available for domains covered by the 40M+ traffic dataset.',
+		defaults: { name: 'Shopify & WooCommerce Leads Database' },
 		inputs: [NodeConnectionTypes.Main],
 		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [{ name: 'apifyApi', required: true }],
 		properties: [
-			{
-				displayName: 'Platforms', name: 'platforms', type: 'multiOptions',
-				options: [
-					{ name: 'All Platforms', value: 'all' },
-					{ name: 'Angular', value: 'angular_sites' },
-					{ name: 'ASP.NET', value: 'aspnet_sites' },
-					{ name: 'BigCommerce', value: 'bigcommerce_sites' },
-					{ name: 'Joomla', value: 'joomla_sites' },
-					{ name: 'Magento', value: 'magento_sites' },
-					{ name: 'Mailchimp', value: 'mailchimp_sites' },
-					{ name: 'Mastercard', value: 'mastercard_sites' },
-					{ name: 'PrestaShop', value: 'prestashop_sites' },
-					{ name: 'Shopify', value: 'shopify_sites' },
-					{ name: 'Squarespace', value: 'squarespace_addtocart_sites' },
-					{ name: 'Wix', value: 'wix_sites' },
-					{ name: 'WooCommerce', value: 'woocommerce_sites' },
-					{ name: 'WooCommerce Checkout', value: 'woocommerce_checkout_sites' },
-					{ name: 'WordPress', value: 'wordpress_sites' },
-				],
-				default: ['all'],
-				description: 'Platform datasets to search. Select All Platforms for the complete database.',
-			},
-			{
-				displayName: 'Keyword', name: 'keyword', type: 'string', default: '', placeholder: 'skincare',
-				description: 'Substring to match in the domain or company name',
-			},
-			{
-				displayName: 'Countries (ISO-2)', name: 'country', type: 'string', default: '', placeholder: 'US, GB, DE',
-				description: 'Comma-separated or one per line. Leave empty for all countries.',
-			},
-			{
-				displayName: 'Phone Country Code', name: 'phoneCode', type: 'string', default: '', placeholder: '+1',
-				description: 'Keep sites with at least one phone starting with this code',
-			},
-			{
-				displayName: 'Only With Email', name: 'hasEmail', type: 'boolean', default: false,
-				description: 'Whether to return only sites with a public email',
-			},
-			{
-				displayName: 'Only With Phone', name: 'hasPhone', type: 'boolean', default: false,
-				description: 'Whether to return only sites with a public telephone number',
-			},
-			{
-				displayName: 'Extra Filters', name: 'extraFilters', type: 'fixedCollection',
-				typeOptions: { multipleValues: true }, placeholder: 'Add Filter', default: {},
-				description: 'Conditions are combined with AND and can target any output column',
-				options: [{
-					displayName: 'Condition', name: 'conditions',
-					values: [
-						{
-							displayName: 'Column', name: 'column', type: 'string', default: '', placeholder: 'City',
-							description: 'Exact column name, for example City, Employees, Sales Revenue, or CMS Platform',
-						},
-						{
-							displayName: 'Operator', name: 'operator', type: 'options', default: 'contains',
-							options: [
-								{ name: 'Contains', value: 'contains' },
-								{ name: 'Does Not Contain', value: 'not_contains' },
-								{ name: 'Ends With', value: 'ends_with' },
-								{ name: 'Equals', value: 'equals' },
-								{ name: 'Is Empty', value: 'empty' },
-								{ name: 'Is Not Empty', value: 'not_empty' },
-								{ name: 'Is One of List', value: 'in_list' },
-								{ name: 'Not Equals', value: 'not_equals' },
-								{ name: 'Starts With', value: 'starts_with' },
-							],
-						},
-						{
-							displayName: 'Value', name: 'value', type: 'string', default: '',
-							description: 'For list matching, provide comma-separated values. Empty operators ignore this field.',
-						},
-					],
-				}],
-			},
-			{
-				displayName: 'Output Columns', name: 'columns', type: 'string', typeOptions: { rows: 4 }, default: '',
-				placeholder: 'Root Domain\nCompany\nEmails\nTelephones',
-				description: 'Comma-separated or one exact column name per line. Leave empty for all available columns.',
-			},
-			{
-				displayName: 'Sort By', name: 'sortBy', type: 'options', default: '',
-				options: [
-					{ name: 'No Sorting', value: '' }, { name: 'Employees', value: 'Employees' },
-					{ name: 'Last Found', value: 'Last Found' }, { name: 'Overall Score', value: 'Overall Score' },
-					{ name: 'Page Rank', value: 'Page Rank' }, { name: 'Performance', value: 'Performance' },
-					{ name: 'Sales Revenue', value: 'Sales Revenue' }, { name: 'SEO', value: 'SEO' },
-					{ name: 'SKU', value: 'SKU' }, { name: 'Technology Spend', value: 'Technology Spend' },
-					{ name: 'Tranco', value: 'Tranco' },
-				],
-				description: 'Sort before applying the row limit to receive the strongest leads first',
-			},
-			{
-				displayName: 'Sort Descending', name: 'sortDesc', type: 'boolean', default: true,
-				description: 'Whether to return the highest values first', displayOptions: { hide: { sortBy: [''] } },
-			},
-			{
-				displayName: 'Deduplicate by Domain', name: 'dedupeByDomain', type: 'boolean', default: false,
-				description: 'Whether to remove repeated root domains within the selection window',
-			},
-			{
-				displayName: 'Count Only', name: 'countOnly', type: 'boolean', default: false,
-				description: 'Return match counts by platform without exporting website rows',
-			},
-			{
-				displayName: 'Max Rows', name: 'maxItems', type: 'number',
-				typeOptions: { minValue: 1, maxValue: 100000 }, default: 1000,
-				description: 'Maximum rows returned across all selected platforms', displayOptions: { hide: { countOnly: [true] } },
-			},
-			{
-				displayName: 'Offset', name: 'offset', type: 'number', typeOptions: { minValue: 0 }, default: 0,
-				description: 'Rows to skip for stable pagination across multiple runs', displayOptions: { hide: { countOnly: [true] } },
-			},
-			{
-				displayName: 'Execution', name: 'execution', type: 'collection', placeholder: 'Add Option', default: {},
-				options: [
-					{
-						displayName: 'Poll Interval (Seconds)', name: 'pollIntervalSeconds', type: 'number',
-						typeOptions: { minValue: 2, maxValue: 60 }, default: 5,
-						description: 'How often to check an asynchronous Actor run',
-					},
-					{
-						displayName: 'Wait for Results', name: 'waitForResults', type: 'boolean', default: true,
-						description: 'Turn off to return Apify run metadata immediately for very large exports',
-					},
-					{
-						displayName: 'Maximum Wait (Seconds)', name: 'maxWaitSeconds', type: 'number',
-						typeOptions: { minValue: 60, maxValue: 3600 }, default: 900,
-						description: 'Maximum time this node waits before returning a clear timeout error',
-					},
-				],
-			},
-		],
+   {
+      "displayName": "Workflow",
+      "name": "workflow",
+      "description": "Auto uses countOnly as before; Export returns lead rows; Count previews the audience without paid Dataset rows.",
+      "type": "options",
+      "options": [
+         {
+            "name": "Auto — preserve legacy controls",
+            "value": "auto"
+         },
+         {
+            "name": "Export matching leads",
+            "value": "export"
+         },
+         {
+            "name": "Count matches only (no Dataset rows)",
+            "value": "count"
+         }
+      ],
+      "default": "auto"
+   },
+   {
+      "displayName": "Platforms",
+      "name": "platforms",
+      "description": "Which platform tables to pull sites from. Leave empty to search ALL platforms. (comma or new-line separated)",
+      "type": "string",
+      "default": ""
+   },
+   {
+      "displayName": "Output preset",
+      "name": "outputPreset",
+      "description": "Compact is best for general AI use; Contacts and Sales produce focused lead lists; Traffic adds traffic enrichment; Full returns all 59 core columns; Custom uses Output columns.",
+      "type": "options",
+      "options": [
+         {
+            "name": "Compact — essential lead fields",
+            "value": "compact"
+         },
+         {
+            "name": "Contacts — emails, phones and socials",
+            "value": "contacts"
+         },
+         {
+            "name": "Sales — qualification and technology",
+            "value": "sales"
+         },
+         {
+            "name": "Traffic — compact plus traffic estimates",
+            "value": "traffic"
+         },
+         {
+            "name": "Full — all 59 core fields",
+            "value": "full"
+         },
+         {
+            "name": "Custom — use Output columns below",
+            "value": "custom"
+         }
+      ],
+      "default": "custom"
+   },
+   {
+      "displayName": "Output columns",
+      "name": "columns",
+      "description": "Which fields to return. IMPORTANT: dataset tabs only display fields saved by this run; selecting only Emails makes Traffic, Firmographics and Tech Stack tabs empty. Leave this field empty to populate ALL tabs with all 59 columns. Root Domain and _platform are always added. (comma or new-line separated)",
+      "type": "string",
+      "default": ""
+   },
+   {
+      "displayName": "Sort by",
+      "name": "sortBy",
+      "description": "Order rows by this column before applying the limit, so you get the top leads instead of an arbitrary slice. Empty — no ordering.",
+      "type": "options",
+      "options": [
+         {
+            "name": "Overall Score",
+            "value": "Overall Score"
+         },
+         {
+            "name": "Tranco",
+            "value": "Tranco"
+         },
+         {
+            "name": "Page Rank",
+            "value": "Page Rank"
+         },
+         {
+            "name": "Sales Revenue",
+            "value": "Sales Revenue"
+         },
+         {
+            "name": "Employees",
+            "value": "Employees"
+         },
+         {
+            "name": "Technology Spend",
+            "value": "Technology Spend"
+         },
+         {
+            "name": "SKU",
+            "value": "SKU"
+         },
+         {
+            "name": "Performance",
+            "value": "Performance"
+         },
+         {
+            "name": "SEO",
+            "value": "SEO"
+         },
+         {
+            "name": "Last Found",
+            "value": "Last Found"
+         }
+      ],
+      "default": "Overall Score"
+   },
+   {
+      "displayName": "Countries (ISO-2)",
+      "name": "country",
+      "description": "One or more ISO-2 country codes, e.g. DE, IT, US. Type each code and press Enter. Empty — no country filter. (comma or new-line separated)",
+      "type": "string",
+      "default": ""
+   },
+   {
+      "displayName": "Keyword",
+      "name": "keyword",
+      "description": "Substring in domain or company name. Empty — no filter.",
+      "type": "string",
+      "default": ""
+   },
+   {
+      "displayName": "Phone country code",
+      "name": "phoneCode",
+      "description": "E.g. +1 or +44. Keeps sites where AT LEAST ONE phone starts with this code. Empty — no filter.",
+      "type": "string",
+      "default": ""
+   },
+   {
+      "displayName": "Extra filters (any columns)",
+      "name": "filters",
+      "description": "Array of conditions on ANY of the 59 columns. Each item: {\"column\": \"City\", \"operator\": \"contains\", \"value\": \"Milano\"}. Operators: equals, not_equals, contains, not_contains, starts_with, ends_with, in_list (comma-separated), not_empty, empty. Conditions are combined with AND.",
+      "type": "json",
+      "default": "[]"
+   },
+   {
+      "displayName": "Only with email",
+      "name": "hasEmail",
+      "description": "Keep only sites where the Emails column is not empty.",
+      "type": "boolean",
+      "default": false
+   },
+   {
+      "displayName": "Add website traffic data",
+      "name": "includeTrafficData",
+      "description": "Optional and slower. Match exported domains against the traffic database and add visits, rank, growth, engagement and channel shares. Traffic filters below automatically enable this option.",
+      "type": "boolean",
+      "default": false
+   },
+   {
+      "displayName": "Only sites with traffic data",
+      "name": "onlyWithTrafficData",
+      "description": "Return and charge only websites that have a traffic estimate. Automatically enables traffic enrichment.",
+      "type": "boolean",
+      "default": false
+   },
+   {
+      "displayName": "Minimum monthly visits",
+      "name": "minMonthlyVisits",
+      "description": "Optional lower traffic threshold. Sites without traffic data or below this estimate are excluded before Dataset billing.",
+      "type": "number",
+      "default": 0,
+      "typeOptions": {
+         "minValue": 0
+      }
+   },
+   {
+      "displayName": "Maximum monthly visits",
+      "name": "maxMonthlyVisits",
+      "description": "Optional upper traffic threshold. Sites without traffic data or above this estimate are excluded before Dataset billing.",
+      "type": "number",
+      "default": 0,
+      "typeOptions": {
+         "minValue": 0
+      }
+   },
+   {
+      "displayName": "Sort by monthly visits",
+      "name": "trafficSortOrder",
+      "description": "Order traffic-matched rows inside each export selection. Traffic fields are added automatically when sorting is enabled.",
+      "type": "options",
+      "options": [
+         {
+            "name": "Do not sort by traffic",
+            "value": "none"
+         },
+         {
+            "name": "Highest traffic first",
+            "value": "highest"
+         },
+         {
+            "name": "Lowest traffic first",
+            "value": "lowest"
+         }
+      ],
+      "default": "none"
+   },
+   {
+      "displayName": "Only with phone",
+      "name": "hasPhone",
+      "description": "Keep only sites where the Telephones column is not empty.",
+      "type": "boolean",
+      "default": false
+   },
+   {
+      "displayName": "Sort descending",
+      "name": "sortDesc",
+      "description": "Highest values first (recommended for scores/traffic/revenue).",
+      "type": "boolean",
+      "default": true
+   },
+   {
+      "displayName": "Deduplicate by domain",
+      "name": "dedupeByDomain",
+      "description": "Do not output repeated Root Domain values when several platform datasets overlap. Single-platform datasets are already unique.",
+      "type": "boolean",
+      "default": true
+   },
+   {
+      "displayName": "Count only",
+      "name": "countOnly",
+      "description": "Preview matching segment rows without per-result charges. Saves structured COUNT_SUMMARY and SUMMARY records; Actor start and platform usage may still apply. Counts can include cross-platform overlap.",
+      "type": "boolean",
+      "default": false
+   },
+   {
+      "displayName": "Max rows",
+      "name": "maxItems",
+      "description": "Upper limit on returned rows per run (across all platforms combined). Max 250000. There is no total cap — use Offset to page through unlimited results across runs.",
+      "type": "number",
+      "default": 50,
+      "typeOptions": {
+         "minValue": 1,
+         "maxValue": 250000
+      }
+   },
+   {
+      "displayName": "Offset (skip first N)",
+      "name": "offset",
+      "description": "Skip the first N source rows, then return the next batch. After a capped run, copy the exact nextOffset or resumeInput from EXPORT_CONTINUATION in the run's Key-Value Store. Set a Sort by column for stable pagination.",
+      "type": "number",
+      "default": 0,
+      "typeOptions": {
+         "minValue": 0
+      }
+   }
+],
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+		for (let i = 0; i < items.length; i++) {
 			try {
-				const selectedPlatforms = this.getNodeParameter('platforms', itemIndex, ['all']) as string[];
-				const keyword = (this.getNodeParameter('keyword', itemIndex, '') as string).trim();
-				const country = splitList(this.getNodeParameter('country', itemIndex, '') as string).map((code) => code.toUpperCase());
-				const phoneCode = (this.getNodeParameter('phoneCode', itemIndex, '') as string).trim();
-				const columns = splitList(this.getNodeParameter('columns', itemIndex, '') as string);
-				const sortBy = this.getNodeParameter('sortBy', itemIndex, '') as string;
-				const countOnly = this.getNodeParameter('countOnly', itemIndex, false) as boolean;
-				const extraFilters = this.getNodeParameter('extraFilters', itemIndex, {}) as {
-					conditions?: Array<{ column?: string; operator?: string; value?: string }>;
+				const body: Record<string, unknown> = {};
+				body["workflow"] = this.getNodeParameter("workflow", i);
+				{ const _v = this.getNodeParameter("platforms", i, '') as string; const _a = _v.split(/[,\n]/).map(s=>s.trim()).filter(s=>s.length>0); if (_a.length) body["platforms"] = _a; }
+				body["outputPreset"] = this.getNodeParameter("outputPreset", i);
+				{ const _v = this.getNodeParameter("columns", i, '') as string; const _a = _v.split(/[,\n]/).map(s=>s.trim()).filter(s=>s.length>0); if (_a.length) body["columns"] = _a; }
+				body["sortBy"] = this.getNodeParameter("sortBy", i);
+				{ const _v = this.getNodeParameter("country", i, '') as string; const _a = _v.split(/[,\n]/).map(s=>s.trim()).filter(s=>s.length>0); if (_a.length) body["country"] = _a; }
+				body["keyword"] = this.getNodeParameter("keyword", i);
+				body["phoneCode"] = this.getNodeParameter("phoneCode", i);
+				{ const _r = this.getNodeParameter("filters", i, '') as string|object; if (_r) { try { body["filters"] = typeof _r === 'string' ? JSON.parse(_r) : _r; } catch { throw new NodeOperationError(this.getNode(), "filters" + ' must be valid JSON', { itemIndex: i }); } } }
+				body["hasEmail"] = this.getNodeParameter("hasEmail", i);
+				body["includeTrafficData"] = this.getNodeParameter("includeTrafficData", i);
+				body["onlyWithTrafficData"] = this.getNodeParameter("onlyWithTrafficData", i);
+				body["minMonthlyVisits"] = this.getNodeParameter("minMonthlyVisits", i);
+				body["maxMonthlyVisits"] = this.getNodeParameter("maxMonthlyVisits", i);
+				body["trafficSortOrder"] = this.getNodeParameter("trafficSortOrder", i);
+				body["hasPhone"] = this.getNodeParameter("hasPhone", i);
+				body["sortDesc"] = this.getNodeParameter("sortDesc", i);
+				body["dedupeByDomain"] = this.getNodeParameter("dedupeByDomain", i);
+				body["countOnly"] = this.getNodeParameter("countOnly", i);
+				body["maxItems"] = this.getNodeParameter("maxItems", i);
+				body["offset"] = this.getNodeParameter("offset", i);
+				const options: IRequestOptions = {
+					method: 'POST' as IHttpRequestMethods,
+					url: `https://api.apify.com/v2/acts/${ACTOR_ID}/runs`,
+					body,
+					json: true,
 				};
-				const execution = this.getNodeParameter('execution', itemIndex, {}) as {
-					waitForResults?: boolean; maxWaitSeconds?: number; pollIntervalSeconds?: number;
-				};
-				const filters = (extraFilters.conditions ?? []).map((condition) => ({
-					column: (condition.column ?? '').trim(), operator: condition.operator ?? 'contains', value: condition.value ?? '',
-				})).filter((condition) => condition.column.length > 0);
-
-				const body: Record<string, unknown> = {
-					platforms: selectedPlatforms.includes('all') ? ['all'] : selectedPlatforms,
-					hasEmail: this.getNodeParameter('hasEmail', itemIndex, false) as boolean,
-					hasPhone: this.getNodeParameter('hasPhone', itemIndex, false) as boolean,
-					sortDesc: this.getNodeParameter('sortDesc', itemIndex, true) as boolean,
-					dedupeByDomain: this.getNodeParameter('dedupeByDomain', itemIndex, false) as boolean,
-					countOnly,
-					maxItems: this.getNodeParameter('maxItems', itemIndex, 1000) as number,
-					offset: this.getNodeParameter('offset', itemIndex, 0) as number,
-				};
-				if (keyword) body.keyword = keyword;
-				if (country.length) body.country = country;
-				if (phoneCode) body.phoneCode = phoneCode;
-				if (columns.length) body.columns = columns;
-				if (sortBy) body.sortBy = sortBy;
-				if (filters.length) body.filters = filters;
-
-				const started = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', {
-					method: 'POST' as IHttpRequestMethods, url: `${API_BASE}/acts/${ACTOR_ID}/runs`, body, json: true,
-				} as IRequestOptions);
-				let run = started?.data ?? started;
-				if (!run?.id) throw new NodeOperationError(this.getNode(), 'Apify did not return a run ID', { itemIndex });
-				if (execution.waitForResults === false) {
-					returnData.push({ json: run, pairedItem: { item: itemIndex } });
-					continue;
+				const started = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', options);
+				const runId = started?.data?.id;
+				if (!runId) throw new NodeOperationError(this.getNode(), 'Apify did not return a run ID', { itemIndex: i });
+				let run = started.data;
+				const deadline = Date.now() + 60 * 60 * 1000;
+				while (!['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(run.status)) {
+					if (Date.now() >= deadline) throw new NodeOperationError(this.getNode(), 'Waiting timed out; check the existing run in Apify before retrying', { itemIndex: i });
+					const polled = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', { method: 'GET', url: `https://api.apify.com/v2/actor-runs/${runId}?waitForFinish=20`, json: true });
+					run = polled.data;
 				}
-
-				const deadline = Date.now() + (execution.maxWaitSeconds ?? 900) * 1000;
-				const pollMilliseconds = (execution.pollIntervalSeconds ?? 5) * 1000;
-				while (!TERMINAL_STATUSES.has(run.status) && Date.now() < deadline) {
-					await sleep(pollMilliseconds);
-					const statusResponse = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', {
-						method: 'GET' as IHttpRequestMethods, url: `${API_BASE}/actor-runs/${run.id}`, json: true,
-					} as IRequestOptions);
-					run = statusResponse?.data ?? statusResponse;
+				if (run.status !== 'SUCCEEDED') throw new NodeOperationError(this.getNode(), 'Apify run ended with status ' + run.status, { itemIndex: i });
+				let offset = 0;
+				while (true) {
+					const page = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', { method: 'GET', url: `https://api.apify.com/v2/datasets/${run.defaultDatasetId}/items?clean=1&limit=1000&offset=${offset}`, json: true });
+					if (!Array.isArray(page)) throw new NodeOperationError(this.getNode(), 'Unexpected Dataset response', { itemIndex: i });
+					for (const result of page) returnData.push({ json: result as IDataObject, pairedItem: { item: i } });
+					offset += page.length;
+					if (page.length < 1000) break;
 				}
-				if (!TERMINAL_STATUSES.has(run.status)) {
-					throw new NodeOperationError(this.getNode(), `Actor run ${run.id} is still running after ${execution.maxWaitSeconds ?? 900} seconds`, { itemIndex });
-				}
-				if (run.status !== 'SUCCEEDED') {
-					throw new NodeOperationError(this.getNode(), `Actor run ${run.id} finished with status ${run.status}`, { itemIndex });
-				}
-				if (!run.defaultDatasetId) {
-					throw new NodeOperationError(this.getNode(), 'Completed run has no dataset ID', { itemIndex });
-				}
-				const response = await this.helpers.requestWithAuthentication.call(this, 'apifyApi', {
-					method: 'GET' as IHttpRequestMethods,
-					url: `${API_BASE}/datasets/${run.defaultDatasetId}/items`,
-					qs: { clean: true, format: 'json' }, json: true,
-				} as IRequestOptions);
-				const results = Array.isArray(response) ? response : [response];
-				for (const result of results) returnData.push({ json: result, pairedItem: { item: itemIndex } });
 			} catch (error) {
 				if (this.continueOnFail()) {
-					returnData.push({ json: { error: (error as Error).message }, pairedItem: { item: itemIndex } });
+					returnData.push({ json: { error: (error as Error).message }, pairedItem: { item: i } });
 					continue;
 				}
-				throw new NodeOperationError(this.getNode(), error as Error, { itemIndex });
+				throw new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
 			}
 		}
 		return [returnData];
