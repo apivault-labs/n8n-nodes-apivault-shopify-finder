@@ -1,0 +1,95 @@
+{
+  "id": "95ec7e15-20a4-591e-9474-b7fe4525eb48",
+  "name": "Website Leads → CRM-ready rows",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e5ae0e03-1273-5d40-b8aa-50fa6f90455a",
+      "name": "When clicking Execute workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup\n1. Select your Apify API credential.\n2. Adjust platform, country and contact filters.\n3. Run the workflow.\n4. Connect the final output to your CRM, Google Sheets or outreach tool.",
+        "height": 260,
+        "width": 440
+      },
+      "id": "ef9bab2a-78a5-57ae-afd9-aa863f2c0b72",
+      "name": "How to use this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "workflow": "export",
+        "platforms": "shopify_sites,woocommerce_sites",
+        "outputPreset": "sales",
+        "hasEmail": true,
+        "dedupeByDomain": true,
+        "maxItems": 200
+      },
+      "id": "e45acbb3-67a1-5be7-9dd3-dbd655838a86",
+      "name": "Find qualified websites with Apify",
+      "type": "n8n-nodes-apivault-shopify-finder.shopifyFinder",
+      "typeVersion": 1,
+      "position": [
+        260,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const j = $json; const emails = j.Emails ?? j.emails ?? j.Email ?? j.email ?? []; const email = Array.isArray(emails) ? (emails[0] ?? '') : emails; const domain = j.Domain ?? j.domain ?? j.Website ?? j.website ?? ''; return { json: { ...j, domain, primaryEmail: email, outreachStatus: email ? 'ready' : 'needs_contact', suggestedNextStep: email ? 'personalize outreach' : 'enrich contact' } };"
+      },
+      "id": "096964ce-2c75-5b19-89ed-2ac21bd97fa1",
+      "name": "Prepare CRM row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking Execute workflow": {
+      "main": [
+        [
+          {
+            "node": "Find qualified websites with Apify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find qualified websites with Apify": {
+      "main": [
+        [
+          {
+            "node": "Prepare CRM row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "d738be03-6018-5b9a-9dd9-7e06a2fd2f31",
+  "tags": []
+}
