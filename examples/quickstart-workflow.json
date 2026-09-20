@@ -1,6 +1,6 @@
 {
   "id": "95ec7e15-20a4-591e-9474-b7fe4525eb48",
-  "name": "Website Leads → CRM-ready rows",
+  "name": "Ecommerce Leads → Qualified CRM",
   "nodes": [
     {
       "parameters": {},
@@ -15,7 +15,7 @@
     },
     {
       "parameters": {
-        "content": "## Setup\n1. Select your Apify API credential.\n2. Adjust platform, country and contact filters.\n3. Run the workflow.\n4. Connect the final output to your CRM, Google Sheets or outreach tool.",
+        "content": "## Setup\n1. Select your Apify API credential.\n2. Adjust platform, country and audience filters.\n3. Run the 50-row sample.\n4. Review the results before increasing the limit.\n5. Connect the final output to your CRM, Google Sheets or review queue.",
         "height": 260,
         "width": 440
       },
@@ -32,10 +32,12 @@
       "parameters": {
         "workflow": "export",
         "platforms": "shopify_sites,woocommerce_sites",
-        "outputPreset": "sales",
+        "outputPreset": "traffic",
         "hasEmail": true,
+        "onlyWithTrafficData": true,
+        "minMonthlyVisits": 10000,
         "dedupeByDomain": true,
-        "maxItems": 200
+        "maxItems": 50
       },
       "id": "e45acbb3-67a1-5be7-9dd3-dbd655838a86",
       "name": "Find qualified websites with Apify",
@@ -49,7 +51,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const j = $json; const emails = j.Emails ?? j.emails ?? j.Email ?? j.email ?? []; const email = Array.isArray(emails) ? (emails[0] ?? '') : emails; const domain = j.Domain ?? j.domain ?? j.Website ?? j.website ?? ''; return { json: { ...j, domain, primaryEmail: email, outreachStatus: email ? 'ready' : 'needs_contact', suggestedNextStep: email ? 'personalize outreach' : 'enrich contact' } };"
+        "jsCode": "const j = $json; const first = (value) => Array.isArray(value) ? (value[0] ?? '') : (typeof value === 'string' ? (value.split(',')[0] ?? '').trim() : (value ?? '')); const email = first(j.Emails ?? j.emails ?? j.Email ?? j.email); const phone = first(j.Telephones ?? j.telephones ?? j.Phone ?? j.phone); const domain = j['Root Domain'] ?? j.Domain ?? j.domain ?? j.Website ?? j.website ?? ''; return { json: { ...j, domain, primaryEmail: email, primaryPhone: phone, monthlyVisits: j['Monthly Visits'] ?? null, outreachStatus: email || phone ? 'ready_for_review' : 'needs_contact', suggestedNextStep: email || phone ? 'review and personalize' : 'enrich contact' } };"
       },
       "id": "096964ce-2c75-5b19-89ed-2ac21bd97fa1",
       "name": "Prepare CRM row",
