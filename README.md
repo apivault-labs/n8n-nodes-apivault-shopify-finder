@@ -30,6 +30,9 @@ country, platform, contact and audience thresholds in the Actor node, then send
 the prepared rows to your CRM, spreadsheet or review queue. For larger exports,
 increase the result limit only after the sample matches your target segment.
 
+For the complete count → sample → traffic qualification → continuation process,
+read the public [Shopify leads-to-CRM playbook](https://github.com/apivault-labs/website-leads-database-python/blob/main/guides/shopify-leads-to-crm.md).
+
 | Input | Type | Description |
 |---|---|---|
 | `workflow` | `string` | Auto uses countOnly as before; Export returns lead rows; Count previews the audience without paid Dataset rows. |
